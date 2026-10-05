@@ -30,7 +30,7 @@
 "文档站框架直接吃 markdown"的路子在这里全都不成立。所以：
 
 ```
-构建期（Python，~2 分钟）              构建期（Astro，~5 秒）              运行期（浏览器）
+构建期（Python，~2 分钟）              构建期（Astro，~2.5 秒）              运行期（浏览器）
 700 本 GB18030 txt  ──►  public/data/  ──►  703 个静态页 + 内联 island  ──►  按块取正文
   · catalog.json  143 KB   书目          · /            首页（701 卡片 SSG）
   · toc/<id>.json 7.2 MB   每本目录      · /search/     检索页
@@ -47,7 +47,7 @@
 3. **自动续载用「最近优先」而不是 IntersectionObserver**：占位条只有几十像素高，
    用 IO 会让几十个占位同时落进观察带 —— 实测一打开《普济方》就并发拉下 1,308 篇。
    改成滚动停稳后载入离视口中心最近的未载入块，正常阅读、拖到底、深跳后回滚三种情形都对。
-4. **脚本体积**：island 只有几 KB，Astro 直接内联进 HTML，`_astro/` 里只剩一个 CSS 文件。
+4. **脚本体积**：island 只有几 KB，`_astro/` 里只有一个 CSS + 一个阅读器脚本。
 
 ## 本地开发
 
@@ -59,7 +59,7 @@ npm run data:local      # 等价于 python3 scripts/build_data.py --src ../books
 # 2. 开发 / 构建
 npm install
 npm run dev             # http://localhost:4321/TCM-Ancient-Books/
-npm run build           # 产物在 dist/（703 页，约 4 秒）
+npm run build           # 产物在 dist/（703 页，约 2.5 秒；需要 Node >= 22.12）
 npm run preview
 ```
 
@@ -79,7 +79,7 @@ npm run preview
 
 ```
 ├─ *.txt                    上游 701 本古籍原文（未改动）
-├─ scripts/build_data.py    语料编译器：GB18030 → JSON
+├─ scripts/build_data.py    语料编译器：GB18030 → JSON（纯 Python，无依赖）
 ├─ src/
 │  ├─ data.ts               构建期读取 public/data（用 process.cwd()，别用 import.meta.url）
 │  ├─ paths.ts              base 前缀归一化（Astro 的 BASE_URL 不带结尾斜杠，是个坑）

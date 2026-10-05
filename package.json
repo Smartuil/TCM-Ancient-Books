@@ -3,6 +3,7 @@
   "type": "module",
   "version": "1.0.0",
   "private": true,
+  "engines": { "node": ">=22.12.0" },
   "scripts": {
     "data": "python3 scripts/build_data.py --src . --out public/data",
     "data:local": "python3 scripts/build_data.py --src ../books --out public/data",
@@ -12,6 +13,6 @@
   },
   "dependencies": {
     "@astrojs/sitemap": "^3.7.4",
-    "astro": "^5.18.2"
+    "astro": "^7.3.5"
   }
 }
