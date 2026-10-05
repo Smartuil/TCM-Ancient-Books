@@ -1,109 +1,157 @@
 # 岐黄古籍 · 中医药古籍全文阅读站
 
-把 [xiaopangxia/TCM-Ancient-Books](https://github.com/xiaopangxia/TCM-Ancient-Books)（700 部中医古籍纯文本）
-编译成可检索、可竖排阅读的静态站，部署在 GitHub Pages。
+**[🔖 在线站点 https://smartuil.github.io/TCM-Ancient-Books/](https://smartuil.github.io/TCM-Ancient-Books/)**
 
-**站点地址（fork 后）**：`https://<你的用户名>.github.io/TCM-Ancient-Books/`
+把 [xiaopangxia/TCM-Ancient-Books](https://github.com/xiaopangxia/TCM-Ancient-Books) 的 701 部中医古籍纯文本
+（8,104 万字）编译成可检索、可竖排阅读的静态站。零后端、零数据库，全站跑在 GitHub Pages 上。
+
+- Astro **7.3.5** 静态构建 · Node **>= 22.12**
+- 构建产物：**703 个静态页**，构建耗时 **约 2.4 秒**
+- 部署：push 到 `master` → GitHub Actions 自动「编译语料 → 构建 → 发布」，**全程约 2.5 分钟**
 
 ---
 
-## 它长什么样
+## 在线站点有什么
 
-| 页面 | 说明 |
+| 页面 | 内容 |
 |---|---|
-| `/` 首页 | 701 部典籍，按序号／篇幅／朝代／作者排序，14 个分类筛选，书名·作者·朝代即时检索 |
-| `/search/` 篇名全站检索 | 148,197 个篇目条目（药名、方名、证候、序跋）跨书检索，支持 `?q=` 直达 |
-| `/book/<id>/` 阅读页 | 完整目录（按卷分组）+ 正文分块懒加载 + 竖排 + 日夜 + 字号 + `[` `]` 翻篇 |
+| [`/`](https://smartuil.github.io/TCM-Ancient-Books/) | 701 部典籍书目，按序号／篇幅／朝代／作者排序，14 个分类筛选，书名·作者·朝代即时过滤（全部 SSG 成真 HTML，利于收录） |
+| [`/search/`](https://smartuil.github.io/TCM-Ancient-Books/search/) | **148,197 个篇目条目**跨书检索（药名、方名、证候、序跋），支持 `?q=人参` 直达 |
+| `/book/<id>/` | 阅读页：完整目录（按卷分组）+ 正文按块懒加载 + **竖排**（`writing-mode: vertical-rl`）+ 日夜 + 字号 + `[` `]` 翻篇 |
 
-## 架构：为什么不是普通的文档站
+例：[《神农本草经》](https://smartuil.github.io/TCM-Ancient-Books/book/000/) ·
+[《普济方》1906 篇 / 23 个正文块](https://smartuil.github.io/TCM-Ancient-Books/book/074/) ·
+[《本草纲目》](https://smartuil.github.io/TCM-Ancient-Books/book/013/)
 
-语料体检结果决定了架构：
+## 语料体检（实测，它决定了整个架构）
 
-| 指标 | 实测 |
+| 指标 | 数值 |
 |---|---|
-| 文本文件 | 701 个，171.5 MB，**700 个 GB18030 / 1 个含非法字节** |
-| 正文字数 | **8,104 万字** |
-| 篇目数 | **148,197 篇** |
+| 文本文件 | 701 个 `.txt`，171.5 MB |
+| 编码 | **700 个 GB18030/GBK，1 个连 GB18030 都解不开**（`203-婴童类萃.txt`，需 `errors='replace'` 兜底） |
+| 正文字数 | **81,045,114 字**（约 8,104 万字） |
+| 篇目数 | **148,197 篇**（`<篇名>` 级） |
+| 源格式 | 631 本带标签（`<篇名>` / `<目录>` / `内容：`），70 本无标签纯文本（中医瑰宝苑导出） |
 | 单本最大 | 《普济方》492 万字 / 1,906 篇 / 23 个正文块 |
+| 单本最小 | 2.2 KB（歌诀类） |
 
-一页一篇 = 148,197 页 × ~20 KB ≈ **3 GB 产物**，Pagefind / VitePress / Docusaurus 这类
-"文档站框架直接吃 markdown"的路子在这里全都不成立。所以：
+**为什么不能用文档站框架直接吃 markdown**：148,197 篇 × 每页约 20 KB HTML ≈ **3 GB 产物**，
+远超 GitHub Pages 的 1 GB 仓库建议上限，构建时间也会到小时级。
+所以 VitePress / Docusaurus / Starlight / mdBook / Pagefind 这条路在这里全部不成立。
+
+## 架构
 
 ```
-构建期（Python，~2 分钟）              构建期（Astro，~2.5 秒）              运行期（浏览器）
-700 本 GB18030 txt  ──►  public/data/  ──►  703 个静态页 + 内联 island  ──►  按块取正文
-  · catalog.json  143 KB   书目          · /            首页（701 卡片 SSG）
-  · toc/<id>.json 7.2 MB   每本目录      · /search/     检索页
-  · books/<id>/<n>.json    正文分块      · /book/<id>/  目录 SSG + 阅读器 island
-  · search/titles-*.json   篇名索引
+构建期 Python（约 2 分钟）           构建期 Astro（约 2.4 秒）             运行期（浏览器）
+700 本 GB18030 txt ──► public/data/ ──► 703 个静态页 ──────────────► 按块取正文
+  · catalog.json   0.14 MB  书目        · /             首页（701 卡片 SSG）
+  · authors.json   0.02 MB  作者        · /search/      篇名检索
+  · toc/<id>.json  7.18 MB  每本目录    · /book/<id>/   目录 SSG + 阅读器 island
+  · books/<id>/<n>.json 246 MB  分块正文
+  · search/titles-*.json 3.84 MB  篇名索引（8 分片）
 ```
 
-**关键设计**
+**四条关键设计**
 
-1. **目录 SSG，正文 island**：每本书的完整目录在构建期渲染成真 HTML（SEO 友好、无 JS 也能读、首屏立刻可见），
-   正文由 island 按块拉取。首屏 ≈ 目录 20–30 KB + 第 1 块正文。
-2. **分块占位架构**：每本书的正文块在 DOM 里先占好座位，跳转（如从检索结果跳到第 1500 篇）只加载目标块，
-   不会白白下载前面 5 MB；缺的块显示「第 X–Y 篇尚未载入 · 载入这一块」。
-3. **自动续载用「最近优先」而不是 IntersectionObserver**：占位条只有几十像素高，
-   用 IO 会让几十个占位同时落进观察带 —— 实测一打开《普济方》就并发拉下 1,308 篇。
+1. **目录 SSG，正文 island。** 每本书的完整目录在构建期渲染成真链接（SEO 友好、无 JS 也能读、首屏立刻可见），
+   正文由 island 按块拉取。首屏 ≈ 目录 20–30 KB + 第一块正文（gzip 约 190 KB）。
+2. **分块占位架构。** 每本书的正文块在 DOM 里先占好座位，块顺序天然正确。
+   跳到第 1500 篇只加载目标块（实测只请求 1 个 JSON、**1.2 秒到位**），不会白白下载前面 5 MB；
+   未载入的块显示「第 X–Y 篇尚未载入 · 载入这一块」，点一下就能补。
+3. **自动续载用「滚动停稳 + 最近优先」，不用 IntersectionObserver。**
+   占位条只有几十像素高，用 IO 会让几十个占位同时落进观察带 —— 实测一打开《普济方》就并发拉下 1,308 篇。
    改成滚动停稳后载入离视口中心最近的未载入块，正常阅读、拖到底、深跳后回滚三种情形都对。
-4. **脚本体积**：island 只有几 KB，`_astro/` 里只有一个 CSS + 一个阅读器脚本。
+4. **gzip 是主要成本杠杆。** 正文块 599 KB → **194 KB**（32%），catalog 143 KB → 26 KB。
+   打开任意一本书的首屏流量 ≈ 200 KB。
 
 ## 本地开发
 
-```bash
-# 1. 语料编译：把 700 本 GB18030 txt 编译成 JSON（约 2 分钟，产物 254 MB，已 gitignore）
-npm run data:local      # 等价于 python3 scripts/build_data.py --src ../books --out public/data
-                        # 仓库里 txt 都在根目录时用：npm run data
+需要 **Python 3**（语料编译，无第三方依赖）和 **Node >= 22.12**。
 
-# 2. 开发 / 构建
+```bash
 npm install
-npm run dev             # http://localhost:4321/TCM-Ancient-Books/
-npm run build           # 产物在 dist/（703 页，约 2.5 秒；需要 Node >= 22.12）
+
+# 1) 把 701 本 GB18030 txt 编译成 public/data/*.json（约 2 分钟，产物 258 MB，已 gitignore）
+npm run data            # = python3 scripts/build_data.py --src . --out public/data
+
+# 2) 开发 / 构建
+npm run dev             # http://localhost:4321/TCM-Ancient-Books/（base 前缀是必须的）
+npm run build           # 产物在 dist/：703 页，约 2.4 秒
 npm run preview
 ```
 
-`public/data/` 不存在时构建会明确报错提示先跑 `npm run data`。
+若本地 txt 不在仓库根目录，用 `npm run data:local`（指向 `../books`）。
 
-## 部署到 GitHub Pages
+`public/data/` 不存在时构建会明确报错并提示先跑 `npm run data`。
 
-仓库已配好 `.github/workflows/pages.yml`：push 到 `master`/`main` 后自动
-「编译语料 → Astro 构建 → 发布 Pages」，全程约 3–5 分钟。
+## 部署
 
-一次性设置：仓库 **Settings → Pages → Build and deployment → Source = GitHub Actions**。
+**已经部署好了**，站点：<https://smartuil.github.io/TCM-Ancient-Books/>
 
-> 语料编译产物 254 MB 不入库（`.gitignore` 里是 `public/data/`），
-> 所以你的 fork 只比上游多几十 KB 代码。CI 每次重新编译（2 分钟），换来仓库干净。
+更新流程就是 `git push`：
+
+```
+push → actions/checkout → Compile corpus（2 分钟）→ setup-node 22 → npm ci → npm run build → deploy-pages
+```
+
+最近两次 CI：`143 s / success`、`148 s / success`。
+
+一次性设置（本仓库已完成）：**Settings → Pages → Build and deployment → Source = GitHub Actions**
+（对应 API 状态 `build_type: workflow`）。
+
+> 编译产物 258 MB **不入库**（`.gitignore` 里的 `public/data/`）。
+> 所以本仓库相对上游只多 **17 个文件 / 198 KB** 代码，CI 每次现编译换来仓库干净。
 
 ## 目录结构
 
 ```
-├─ *.txt                    上游 701 本古籍原文（未改动）
-├─ scripts/build_data.py    语料编译器：GB18030 → JSON（纯 Python，无依赖）
+├─ *.txt                        上游 701 本古籍原文（一字未改，md5 与上游 701/701 一致）
+├─ scripts/build_data.py        语料编译器：GB18030 → JSON（纯 stdlib Python）
 ├─ src/
-│  ├─ data.ts               构建期读取 public/data（用 process.cwd()，别用 import.meta.url）
-│  ├─ paths.ts              base 前缀归一化（Astro 的 BASE_URL 不带结尾斜杠，是个坑）
-│  ├─ layouts/Base.astro    主题/字号/竖排的首屏还原脚本
-│  ├─ components/Reader.astro  自研阅读器 island（分块占位 + 最近优先续载）
-│  ├─ pages/index.astro     首页（701 卡片 SSG + 客户端过滤排序）
-│  ├─ pages/search.astro    篇名全站检索
-│  ├─ pages/book/[id].astro 阅读页（目录 SSG + island）
-│  └─ styles/global.css     古籍视觉：宣纸 / 墨 / 朱砂
-├─ public/                  favicon、.nojekyll、data/（编译产物）
+│  ├─ data.ts                   构建期读取 public/data（用 process.cwd()，别用 import.meta.url）
+│  ├─ paths.ts                  base 前缀归一化（Astro 的 BASE_URL 不带结尾斜杠，是个坑）
+│  ├─ layouts/Base.astro        主题 / 字号 / 竖排的首屏还原脚本（防闪动）
+│  ├─ components/Reader.astro   阅读器 island：分块占位 + 最近优先续载 + 竖排/日夜/字号
+│  ├─ pages/index.astro         首页：701 卡片 SSG + 客户端过滤排序
+│  ├─ pages/search.astro        篇名全站检索：8 分片流式加载 + 高亮
+│  ├─ pages/book/[id].astro     阅读页：目录 SSG + island
+│  └─ styles/global.css         古籍视觉：宣纸 #f7f2e6 / 墨 #2a2118 / 朱砂 #9c2c1f
+├─ public/                      favicon.svg、.nojekyll、data/（编译产物）
 └─ .github/workflows/pages.yml
 ```
+
+## 检索能力（v1 范围）
+
+| 方式 | 实现 | 实测 |
+|---|---|---|
+| 书名 / 作者 / 朝代 | `catalog.json`，纯前端即时过滤 | 零等待 |
+| 分类筛选 | 构建期按书名关键词归类（本草、方书、伤寒金匮、针灸、医案……14 类） | 伤寒金匮 57 部 |
+| **篇名全站检索** | `search/titles-*.json` 8 分片，首次输入才并发拉取，**边到边出结果** | 索引 gzip 合计 1.18 MB；载入+解析 107 ms、单次检索 15–42 ms；线上首屏出结果约 2.5 s |
+| 单书内查找 | 阅读页侧栏即时过滤本书篇名 | — |
+
+命中示例：「人参」515 篇、「甘草」570 篇、「伤寒」1677 篇、「四物汤」98 篇。结果限 300 条，前缀命中优先 + 短标题优先。
 
 ## 改东西时注意
 
 - **换仓库名 / 换域名**：只改 `astro.config.mjs` 里的 `site` 和 `base` 两行，
-  其余链接全部走 `src/paths.ts` 的 `BASE`。
+  其余链接全部走 `src/paths.ts` 的 `BASE`（`BASE_URL` 不带结尾斜杠，别自己拼）。
+- **GitHub Pages 项目站点下，所有运行期 `fetch` 都要带 base 前缀**，否则会 404。
 - **字体想要更像古籍**：把 `--serif` / `--kai` 换成自托管的
-  [霞鹜文楷 LXGW WenKai](https://github.com/lxgw/LxgwWenKai)（OFL）和思源宋体 woff2 子集
-  （`fonttools pyftsubset`），别直接挂 Google Fonts（国内不稳）。
-- **想要全站全文检索（v2）**：Pagefind 只吃已生成的 HTML，吃 JSON 会让索引膨胀到几百 MB。
-  更实际的是 Python 预生成 bigram 倒排 + 分片按需拉取，或外挂 Meilisearch / Cloudflare Worker。
+  [霞鹜文楷 LXGW WenKai](https://github.com/lxgw/LxgwWenKai)（OFL）+ 思源宋体 woff2 子集
+  （`fonttools pyftsubset`）。别直接挂 Google Fonts，国内不稳。
+- 上游自带两个垃圾文件（`290-外科证治全书.txt.baiduyun.downloading*`）是历史遗留，
+  不以 `.txt` 结尾，编译器会跳过；为保持与上游一致没有删除。
+
+## 路线图
+
+- ✅ **v1（已上线）**：书目 SSG + 篇名/作者检索 + 分块阅读器 + 竖排
+- ⬜ **v2**：全站**全文**检索（8,104 万字）。Pagefind 只吃已生成的 HTML，吃 JSON 会让索引膨胀到几百 MB；
+  更实际的做法是 Python 预生成 **bigram 倒排 + 分片**按需拉取，或外挂 Meilisearch / Cloudflare Worker（此时已不是纯静态）
+- ⬜ 可选：自托管字体、书目 OCR 校勘标注、阅读进度本地留存
 
 ## 上游与许可
 
-古籍原文来自 [xiaopangxia/TCM-Ancient-Books](https://github.com/xiaopangxia/TCM-Ancient-Books)（MIT），
-本站代码同样以 MIT 发布。古籍文本本身属于公有领域，请自行核对原站说明。
+古籍原文来自 [xiaopangxia/TCM-Ancient-Books](https://github.com/xiaopangxia/TCM-Ancient-Books)。
+本仓库是它的 fork：**701 本 txt 原文一字未改**，只在上游基础上新增了上面的构建与站点代码
+（上游那份两行的 README 已被本文档替换）。代码以 MIT 发布；古籍文本本身属于公有领域，
+具体使用请自行核对上游说明。
