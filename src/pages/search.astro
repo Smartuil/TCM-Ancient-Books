@@ -1,0 +1,123 @@
+---
+import Base from '../layouts/Base.astro';
+import { catalog } from '../data.ts';
+
+import { BASE as base } from '../paths.ts';
+const n = catalog.sections;
+// 构建期注入「书号 → 书名 · 作者 · 朝代」标签表（gzip 后 ~10 KB），省掉一次 catalog 请求
+const LABEL = Object.fromEntries(
+  catalog.books.map((b) => [b.id, [b.title, b.author, b.dynasty].filter(Boolean).join(' · ')])
+);
+---
+<Base
+  title="篇名全站检索 · 岐黄古籍"
+  description={`在 ${catalog.count} 部中医药古籍、${n} 个篇目中检索篇名、药材、方名。`}
+>
+  <header class="topbar">
+    <a class="brand" href={base} style="letter-spacing:.1em">← 岐黄古籍</a>
+    <div class="spacer"></div>
+    <span class="tag" id="stat"></span>
+    <button class="btn" id="theme" title="日/夜">◑</button>
+  </header>
+
+  <section class="hero" style="padding-bottom:8px">
+    <h1 style="font-size:1.8rem;letter-spacing:.2em">篇名检索</h1>
+    <div class="sub">
+      覆盖 {catalog.count} 部典籍 · {(n / 10000).toFixed(1)} 万个篇目条目（药名、方名、证候、序跋……）
+    </div>
+    <div class="rule"></div>
+  </section>
+
+  <div class="controls">
+    <input class="search" id="q" placeholder="例如 人参、四物汤、太阳病、本草纲目" autocomplete="off" autofocus />
+  </div>
+
+  <div class="hits" id="hits"></div>
+  <div class="empty" id="empty" hidden>没有匹配的篇目</div>
+
+  <script is:inline define:vars={{ LABEL }}>
+    window.LABEL = LABEL;
+  </script>
+
+  <script>
+    const base = (window as any).__BASE__ || '/';
+    const labels: Record<string, string> = (window as any).LABEL || {};
+    const q = document.getElementById('q') as HTMLInputElement;
+    const box = document.getElementById('hits')!;
+    const empty = document.getElementById('empty')!;
+    const stat = document.getElementById('stat')!;
+    const LIMIT = 300;
+
+    let entries: [number | string, number, string][] = [];
+    const shards: any[][] = [];
+    let total = 0, loaded = 0;
+
+    const esc = (s: string) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
+    const HL = (text: string, key: string) => {
+      const i = text.toLowerCase().indexOf(key);
+      if (i < 0) return esc(text);
+      return esc(text.slice(0, i)) + '<mark>' + esc(text.slice(i, i + key.length)) + '</mark>' + esc(text.slice(i + key.length));
+    };
+
+    async function loadIndex() {
+      const man = await fetch(`${base}data/search/manifest.json`).then((r) => r.json());
+      total = man.shards.length;
+      box.innerHTML = `<div class="loadbar">正在载入篇名索引 0 / ${total} …</div>`;
+      await Promise.all(
+        man.shards.map(async (s: any, i: number) => {
+          shards[i] = await fetch(`${base}data/search/${s.file}`).then((r) => r.json());
+          loaded++;
+          run(); // 分片到一片就重跑一次，结果边到边出
+        })
+      );
+      entries = shards.flat();
+      run();
+    }
+
+    function run() {
+      const key = q.value.trim().toLowerCase();
+      if (!key) { box.innerHTML = ''; empty.hidden = true; stat.textContent = ''; return; }
+      if (loaded < total) {
+        box.innerHTML = `<div class="loadbar">正在载入篇名索引 ${loaded} / ${total} …</div>`;
+        return;
+      }
+      const hits: [number | string, number, string][] = [];
+      let count = 0;
+      for (const e of entries) {
+        if (e[2].toLowerCase().includes(key)) {
+          count++;
+          if (hits.length < LIMIT) hits.push(e);
+        }
+      }
+      hits.sort((a, b) => {
+        const pa = a[2].toLowerCase().startsWith(key) ? 0 : 1;
+        const pb = b[2].toLowerCase().startsWith(key) ? 0 : 1;
+        return pa - pb || a[2].length - b[2].length;
+      });
+      stat.textContent = `${count} 条`;
+      empty.hidden = count > 0;
+      box.innerHTML =
+        `<div class="loadbar">命中 ${count} 篇${count > LIMIT ? `，显示前 ${LIMIT} 条` : ''}</div>` +
+        hits
+          .map(([bid, si, t]) => {
+            const id = String(bid).padStart(3, '0');
+            return `<a class="hit" href="${base}book/${id}/?s=${si}">
+              <div class="ht">${HL(t, key)}</div>
+              <div class="hm">${esc(labels[id] || id)}</div>
+            </a>`;
+          })
+          .join('');
+    }
+
+    let timer: number | undefined;
+    q.oninput = () => { clearTimeout(timer); timer = window.setTimeout(run, 120); };
+    document.addEventListener('keydown', (e) => {
+      if (e.key === '/' && document.activeElement !== q) { e.preventDefault(); q.focus(); }
+    });
+
+    loadIndex().then(() => {
+      const init = new URLSearchParams(location.search).get('q');
+      if (init) { q.value = init; run(); }
+    });
+  </script>
+</Base>

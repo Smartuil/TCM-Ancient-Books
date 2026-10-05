@@ -1,0 +1,87 @@
+---
+import Base from '../../layouts/Base.astro';
+import Reader from '../../components/Reader.astro';
+import { catalog, tocOf } from '../../data.ts';
+
+import { BASE as base } from '../../paths.ts';
+
+export function getStaticPaths() {
+  return catalog.books.map((b) => ({ params: { id: b.id }, props: { book: b } }));
+}
+
+const { book } = Astro.props;
+const toc = tocOf(book.id);
+const desc = `${book.title}${book.author ? `（${book.dynasty || ''}${book.author}）` : ''}全文在线阅读，共 ${book.sections} 篇、${(book.chars / 10000).toFixed(1)} 万字。`
+  + `收录于岐黄古籍（中医药古籍全文库，共 ${catalog.count} 部）。`;
+const jsonld = JSON.stringify({
+  '@context': 'https://schema.org',
+  '@type': 'Book',
+  name: book.title,
+  author: book.author ? { '@type': 'Person', name: book.author } : undefined,
+  inLanguage: 'zh-Hans',
+  numberOfPages: book.sections,
+  isPartOf: { '@type': 'Collection', name: '岐黄古籍' },
+  url: `${Astro.site}book/${book.id}/`,
+});
+---
+<Base title={`${book.title} · 岐黄古籍`} description={desc}>
+  <header class="topbar">
+    <a class="brand" href={base} style="letter-spacing:.1em">← 岐黄古籍</a>
+    <div class="spacer"></div>
+    <button class="btn" id="toggleSide" title="目录">☰</button>
+    <button class="btn" id="fsDown" title="缩小字号">A－</button>
+    <button class="btn" id="fsUp" title="放大字号">A＋</button>
+    <button class="btn" id="vertical" title="竖排 / 横排">竖排</button>
+    <a class="btn" href={`${base}search/`} title="篇名检索">检索</a>
+    <button class="btn" id="theme" title="日/夜">◑</button>
+  </header>
+
+  <div class="reader">
+    <aside class="side" id="side">
+      <input class="toc-search" id="tq" placeholder="在目录中检索篇名…" autocomplete="off" />
+      <nav id="toc">
+        {
+          toc.map(([t, c, chunkNo], i) => (
+            <>
+              {c && c !== (toc[i - 1]?.[1] ?? '') && <div class="toc-cat">{c}</div>}
+              <a class="toc-item" href={`${base}book/${book.id}/?s=${i}`} data-i={i} data-c={chunkNo} data-t={t}>
+                {t}
+              </a>
+            </>
+          ))
+        }
+      </nav>
+      <div style="padding:14px 8px;display:flex;gap:8px">
+        <button class="btn" id="prevSec" style="flex:1">上一节 [</button>
+        <button class="btn" id="nextSec" style="flex:1">下一节 ]</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="bookhead">
+        <h1>{book.title}</h1>
+        <div class="meta">
+          {book.author && <span>{book.author}</span>}
+          {book.dynasty && <span>{book.dynasty}</span>}
+          {book.year && <span>{book.year}</span>}
+          <span>{(book.chars / 10000).toFixed(1)} 万字</span>
+          <span>{book.sections} 篇</span>
+          <span>编号 {book.id}</span>
+        </div>
+        <div class="tags">
+          {(book.tags || []).map((t) => <a class="chip" href={`${base}?tag=${encodeURIComponent(t)}`}>{t}</a>)}
+        </div>
+      </div>
+
+      <Reader id={book.id} chunks={book.chunks} />
+
+      <noscript>
+        <p style="color:var(--ink-soft)">
+          本页正文由阅读器按块加载，需要开启 JavaScript。目录已在上方列出，可直接访问对应篇目。
+        </p>
+      </noscript>
+    </main>
+  </div>
+
+  <script type="application/ld+json" is:inline set:html={jsonld} />
+</Base>

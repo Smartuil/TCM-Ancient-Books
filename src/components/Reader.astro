@@ -1,0 +1,245 @@
+---
+/**
+ * 自研阅读器 island。
+ *
+ * 静态部分（书目信息 + 完整目录）由 Astro 构建期产出：SEO 友好、无 JS 也能读目录。
+ * 正文按「块」懒加载，并采用 **占位架构**：
+ *   - 每个块在 DOM 里先占一个座位（占位条），块顺序天然正确；
+ *   - 从检索结果深跳（如第 1500 篇）只加载目标块，不会白白下载前面 5 MB；
+ *   - 缺的块显示「第 X–Y 篇未载入 · 点击载入」，滚回去也不会有空洞。
+ * 首屏 = catalog 元信息 + 目录（约 20–30 KB）+ 第 1 块正文（gzip 前 ~600 KB）。
+ */
+import { BASE as base } from '../paths.ts';
+
+interface Props {
+  id: string;
+  chunks: number;
+}
+const { id, chunks } = Astro.props;
+---
+<div id="reader" data-id={id} data-chunks={chunks} data-base={base}>
+  <div class="reader-content" id="content"></div>
+  <div class="loadbar" id="loadbar"></div>
+</div>
+
+<script>
+  const root = document.getElementById('reader')!;
+  const BID = root.dataset.id!;
+  const BASE = root.dataset.base || '/';
+  const TOTAL = +root.dataset.chunks!;
+  const box = document.getElementById('content')!;
+  const bar = document.getElementById('loadbar')!;
+  const tocLinks = [...document.querySelectorAll<HTMLAnchorElement>('.toc-item')];
+
+  const esc = (s: string) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]!));
+  const cache = new Map<number, Promise<any[]>>();
+  const containers = new Map<number, HTMLElement>();
+  const loaded = new Set<number>();
+  let cur = -1;
+  let lockUntil = 0; // 程序化滚动期间，别让观察器改写 URL
+
+  /** 每个块的第一/最后一个全局篇序号 */
+  const spanOf = (n: number) => {
+    const first = tocLinks.findIndex((a) => a.dataset.c === String(n));
+    if (first < 0) return null;
+    let last = first;
+    while (last + 1 < tocLinks.length && tocLinks[last + 1].dataset.c === String(n)) last++;
+    return [first, last] as const;
+  };
+
+  /** 建座位：DOM 顺序 == 块顺序，占位条先摆好 */
+  function buildSeats() {
+    for (let n = 0; n < TOTAL; n++) {
+      const el = document.createElement('section');
+      el.className = 'chunk';
+      el.dataset.n = String(n);
+      const sp = spanOf(n);
+      el.innerHTML =
+        `<div class="gap" data-gap="${n}">` +
+        `<span>第 ${sp ? sp[0] + 1 : '?'}–${sp ? sp[1] + 1 : '?'} 篇尚未载入</span>` +
+        `<button class="btn" type="button">载入这一块</button>` +
+        `</div>`;
+      el.querySelector('button')!.addEventListener('click', () => loadChunk(n));
+      box.appendChild(el);
+      containers.set(n, el);
+    }
+  }
+
+  const getChunk = (n: number) => {
+    if (!cache.has(n)) {
+      cache.set(n, fetch(`${BASE}data/books/${BID}/${n}.json`).then((r) => (r.ok ? r.json() : [])));
+    }
+    return cache.get(n)!;
+  };
+
+  async function loadChunk(n: number) {
+    if (loaded.has(n) || n < 0 || n >= TOTAL) return;
+    const el = containers.get(n)!;
+    const data = await getChunk(n);
+    const start = Math.max(0, tocLinks.findIndex((a) => a.dataset.c === String(n)));
+    const frag = document.createDocumentFragment();
+    data.forEach((sec, i) => {
+      const art = document.createElement('article');
+      art.className = 'sec';
+      art.id = 's-' + (start + i);
+      art.innerHTML =
+        `<h2>${esc(sec.t)}${sec.c ? `<span class="cat">${esc(sec.c)}</span>` : ''}</h2>` +
+        sec.p.map((p: string) => `<p>${esc(p)}</p>`).join('');
+      frag.appendChild(art);
+      secObs.observe(art);
+    });
+    el.innerHTML = '';
+    el.appendChild(frag);
+    el.dataset.loaded = '1';
+    el.classList.remove('pending');
+    loaded.add(n);
+    refreshBar();
+  }
+
+  function refreshBar() {
+    bar.textContent =
+      loaded.size >= TOTAL
+        ? '— 全文完 —'
+        : `已载入 ${loaded.size} / ${TOTAL} 块 · 向下滚动自动续载`;
+  }
+
+  function mark(i: number) {
+    cur = i;
+    document.querySelector('.toc-item.cur')?.classList.remove('cur');
+    const el = tocLinks[i];
+    if (el) {
+      el.classList.add('cur');
+      el.scrollIntoView({ block: 'nearest' });
+    }
+    history.replaceState(null, '', `?s=${i}`);
+  }
+
+  async function goTo(i: number, smooth = false) {
+    if (i < 0 || i >= tocLinks.length) return;
+    const n = +tocLinks[i].dataset.c!;
+    lockUntil = Date.now() + 1200;
+    await loadChunk(n); // 只加载目标块，不连带前面的
+    const target = document.getElementById('s-' + i);
+    if (target) target.scrollIntoView({ block: 'start', behavior: smooth ? 'smooth' : 'auto' });
+    mark(i);
+  }
+
+  /* 目录点击：拦截，不刷新页面（href 仍保留，利于 SEO / 新窗口打开） */
+  tocLinks.forEach((a) => {
+    a.addEventListener('click', (e) => {
+      if (e.metaKey || e.ctrlKey || e.shiftKey) return;
+      e.preventDefault();
+      goTo(+a.dataset.i!, true);
+      if (window.innerWidth < 900) document.getElementById('side')?.classList.remove('open');
+    });
+  });
+
+  /* 目录内检索 */
+  const tq = document.getElementById('tq') as HTMLInputElement | null;
+  if (tq) {
+    tq.oninput = () => {
+      const k = tq.value.trim();
+      tocLinks.forEach((a) => { a.hidden = !!k && !(a.dataset.t || '').includes(k); });
+      document.querySelectorAll<HTMLElement>('.toc-cat').forEach((h) => {
+        let n = h.nextElementSibling;
+        let any = false;
+        while (n && !n.classList.contains('toc-cat')) {
+          if (n.classList.contains('toc-item') && !(n as HTMLElement).hidden) { any = true; break; }
+          n = n.nextElementSibling;
+        }
+        h.hidden = !any;
+      });
+    };
+  }
+
+  /* 滚动高亮：观察带上沿贴视口顶，避免被书目标题挡掉 */
+  const secObs = new IntersectionObserver(
+    (es) => {
+      if (Date.now() < lockUntil) return;
+      for (const e of es) if (e.isIntersecting) { mark(+e.target.id.slice(2)); break; }
+    },
+    { rootMargin: '0px 0px -70% 0px' }
+  );
+
+  /* 自动续载：载入串行排队 */
+  const queue: number[] = [];
+  let busy = false;
+  async function pump() {
+    if (busy) return;
+    busy = true;
+    while (queue.length) await loadChunk(queue.shift()!);
+    busy = false;
+    settle();
+  }
+  function enqueue(n: number) {
+    if (loaded.has(n) || queue.includes(n)) return;
+    queue.push(n);
+    pump();
+  }
+
+  /* 滚动停稳后，载入「离视口中心最近」的未载入块，并提前一屏预取。
+     为什么不用 IntersectionObserver：占位条只有几十像素高，首屏时几十个占位
+     会同时落进观察带，导致一打开长书就把 23 个块全拉下来（实测拉 1308 篇）。
+     最近优先则天然兼顾三种情形：正常阅读（续下一块）、拖到底（载入脚下那块）、
+     深跳后往回滚（载入上方那块）。 */
+  let settleTimer: number | undefined;
+  function settle() {
+    clearTimeout(settleTimer);
+    settleTimer = window.setTimeout(() => {
+      const vh = window.innerHeight;
+      const picks: [number, number][] = [];
+      for (const [n, el] of containers) {
+        if (loaded.has(n)) continue;
+        const r = el.getBoundingClientRect();
+        if (r.bottom < -vh * 0.5 || r.top > vh * 2) continue; // 远在天边的先不管
+        picks.push([Math.abs((r.top + r.bottom) / 2 - vh / 2), n]);
+      }
+      if (!picks.length) return;
+      picks.sort((a, b) => a[0] - b[0]);
+      enqueue(picks[0][1]);
+    }, 220);
+  }
+  window.addEventListener('scroll', settle, { passive: true });
+  window.addEventListener('resize', settle);
+
+  /* 工具条 */
+  document.getElementById('prevSec')!.onclick = () => goTo(Math.max(0, cur - 1), true);
+  document.getElementById('nextSec')!.onclick = () => goTo(Math.min(tocLinks.length - 1, cur + 1), true);
+  document.addEventListener('keydown', (e) => {
+    if ((e.target as HTMLElement).tagName === 'INPUT') return;
+    if (e.key === '[') goTo(Math.max(0, cur - 1), true);
+    if (e.key === ']') goTo(Math.min(tocLinks.length - 1, cur + 1), true);
+  });
+  document.getElementById('toggleSide')!.onclick = () => document.getElementById('side')?.classList.toggle('open');
+
+  let fs = +(localStorage.getItem('fs') || 17);
+  const applyFs = () => {
+    document.documentElement.style.setProperty('--fs', fs + 'px');
+    localStorage.setItem('fs', String(fs));
+  };
+  document.getElementById('fsUp')!.onclick = () => { fs = Math.min(26, fs + 1); applyFs(); };
+  document.getElementById('fsDown')!.onclick = () => { fs = Math.max(13, fs - 1); applyFs(); };
+
+  const vBtn = document.getElementById('vertical')!;
+  const syncV = () => vBtn.classList.toggle('on', document.documentElement.dataset.vertical === '1');
+  vBtn.onclick = () => {
+    const on = document.documentElement.dataset.vertical === '1';
+    if (on) { delete document.documentElement.dataset.vertical; localStorage.setItem('vertical', ''); }
+    else { document.documentElement.dataset.vertical = '1'; localStorage.setItem('vertical', '1'); }
+    syncV();
+  };
+  syncV();
+
+  /* 启动 */
+  buildSeats();
+  (async () => {
+    const s = parseInt(new URLSearchParams(location.search).get('s') || '-1', 10);
+    if (s >= 0 && s < tocLinks.length) {
+      await goTo(s);
+    } else {
+      await loadChunk(0);
+      mark(0);
+      settle();
+    }
+  })();
+</script>

@@ -1,0 +1,12 @@
+# 语料编译产物：CI 里由 scripts/build_data.py 生成，不入库
+public/data/
+
+# Astro / Node
+node_modules/
+dist/
+.astro/
+npm-debug.log*
+
+.DS_Store
+__pycache__/
+*.pyc

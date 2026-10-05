@@ -1,0 +1,48 @@
+---
+import '../styles/global.css';
+
+interface Props {
+  title: string;
+  description?: string;
+}
+const {
+  title,
+  description = '岐黄古籍 · 中医药古籍全文在线阅读，近 700 部，可按书名、作者、篇名检索。',
+} = Astro.props;
+import { BASE as base } from '../paths.ts';
+---
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>{title}</title>
+  <meta name="description" content={description} />
+  <meta name="generator" content={Astro.generator} />
+  <link rel="icon" href={`${base}favicon.svg`} />
+  <!-- 主题 / 字号 / 竖排：首屏前还原，避免闪动 -->
+  <script is:inline define:vars={{ base }}>
+    window.__BASE__ = base;
+    try {
+      const d = document.documentElement;
+      d.dataset.theme = localStorage.getItem('theme') || 'light';
+      d.style.setProperty('--fs', (localStorage.getItem('fs') || 17) + 'px');
+      if (localStorage.getItem('vertical') === '1') d.dataset.vertical = '1';
+    } catch (e) {}
+  </script>
+</head>
+<body>
+  <slot />
+  <script is:inline>
+    // 日夜切换按钮（每页都有，逻辑共用）
+    const btn = document.getElementById('theme');
+    if (btn) {
+      btn.onclick = () => {
+        const dark = document.documentElement.dataset.theme === 'dark';
+        document.documentElement.dataset.theme = dark ? 'light' : 'dark';
+        localStorage.setItem('theme', dark ? 'light' : 'dark');
+      };
+    }
+  </script>
+</body>
+</html>

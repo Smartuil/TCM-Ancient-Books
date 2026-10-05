@@ -1,0 +1,17 @@
+{
+  "name": "tcm-ancient-books",
+  "type": "module",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "data": "python3 scripts/build_data.py --src . --out public/data",
+    "data:local": "python3 scripts/build_data.py --src ../books --out public/data",
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "@astrojs/sitemap": "^3.7.4",
+    "astro": "^5.18.2"
+  }
+}

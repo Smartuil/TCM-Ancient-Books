@@ -1,0 +1,133 @@
+---
+import Base from '../layouts/Base.astro';
+import { catalog, tagCounts } from '../data.ts';
+
+import { BASE as base } from '../paths.ts';
+const books = catalog.books;
+const tags = tagCounts();
+const DYN = ['先秦', '汉魏', '晋', '南北朝', '隋', '唐', '五代', '宋', '金', '元', '明', '清', '民国', '近现代', '日本', '朝鲜'];
+const dynRank = (d: string) => {
+  const i = DYN.findIndex((x) => d?.includes(x));
+  return i < 0 ? 99 : i;
+};
+---
+<Base title="岐黄古籍 · 中医药古籍全文">
+  <header class="topbar">
+    <div class="brand">岐黄古籍<small>ANCIENT TCM BOOKS</small></div>
+    <div class="spacer"></div>
+    <span class="tag" id="stat">{books.length} / {books.length}</span>
+    <a class="btn" href={`${base}search/`}>篇名检索</a>
+    <button class="btn" id="theme" title="日/夜">◑</button>
+  </header>
+
+  <section class="hero">
+    <h1>岐黄古籍</h1>
+    <div class="sub">上自《神农本草经》，下迄晚清医案 · 全文可检索</div>
+    <div class="rule"></div>
+    <div class="stats">
+      <div><b>{catalog.count}</b><br />部典籍</div>
+      <div><b>{(catalog.sections / 10000).toFixed(1)}万</b><br />篇条目</div>
+      <div><b>{Math.round(catalog.chars / 10000)}</b><br />万字</div>
+    </div>
+  </section>
+
+  <div class="controls">
+    <input class="search" id="q" placeholder="搜书名 / 作者 / 朝代，例如 本草纲目、张仲景、清（回车切换到篇名检索）" autocomplete="off" />
+    <select id="sort">
+      <option value="id">按序号（000 →）</option>
+      <option value="chars">按篇幅（大 → 小）</option>
+      <option value="dynasty">按朝代</option>
+      <option value="author">按作者</option>
+    </select>
+  </div>
+
+  <div class="chips" id="chips">
+    <span class="chip on" data-t="">全部 {books.length}</span>
+    {tags.map(([t, n]) => <span class="chip" data-t={t}>{t} {n}</span>)}
+  </div>
+
+  <div class="grid" id="grid">
+    {books.map((b) => (
+      <a
+        class="card"
+        href={`${base}book/${b.id}/`}
+        data-t={b.title}
+        data-a={b.author || ''}
+        data-d={b.dynasty || ''}
+        data-y={b.year || ''}
+        data-g={(b.tags || []).join(' ')}
+        data-c={b.chars}
+        data-k={dynRank(b.dynasty)}
+      >
+        <div class="id">{b.id}</div>
+        <div class="t">{b.title}</div>
+        <div class="m">
+          <span>{b.author || '佚名'}</span>
+          <span>{b.dynasty || '—'}</span>
+          <span>{(b.chars / 10000).toFixed(1)}万字 · {b.sections}篇</span>
+        </div>
+      </a>
+    ))}
+  </div>
+  <div class="empty" id="empty" hidden>没有匹配的典籍</div>
+
+  <script>
+    const grid = document.getElementById('grid')!;
+    const cards = [...grid.children] as HTMLElement[];
+    const q = document.getElementById('q') as HTMLInputElement;
+    const sort = document.getElementById('sort') as HTMLSelectElement;
+    const stat = document.getElementById('stat')!;
+    const empty = document.getElementById('empty')!;
+    const base = (window as any).__BASE__ || '/';
+    let tag = '';
+
+    const hl = (el: HTMLElement, text: string, key: string) => {
+      if (!key || !text.toLowerCase().includes(key)) return;
+      const i = text.toLowerCase().indexOf(key);
+      const n = el.querySelector('.t')!;
+      n.innerHTML =
+        esc(text.slice(0, i)) + '<mark>' + esc(text.slice(i, i + key.length)) + '</mark>' + esc(text.slice(i + key.length));
+    };
+    const esc = (s: string) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]!));
+
+    function render() {
+      const key = q.value.trim().toLowerCase();
+      const mode = sort.value;
+      const list = cards.filter((c) => {
+        if (tag && !(c.dataset.g || '').split(' ').includes(tag)) return false;
+        if (!key) return true;
+        return ((c.dataset.t || '') + (c.dataset.a || '') + (c.dataset.d || '') + (c.dataset.y || '')).toLowerCase().includes(key);
+      });
+      if (mode === 'chars') list.sort((a, b) => +b.dataset.c! - +a.dataset.c!);
+      else if (mode === 'dynasty') list.sort((a, b) => +a.dataset.k! - +b.dataset.k! || a.dataset.t!.localeCompare(b.dataset.t!, 'zh'));
+      else if (mode === 'author') list.sort((a, b) => (a.dataset.a || 'zz').localeCompare(b.dataset.a || 'zz', 'zh'));
+      else list.sort((a, b) => a.getAttribute('href')!.localeCompare(b.getAttribute('href')!));
+      const keep = new Set(list);
+      cards.forEach((c) => { c.hidden = !keep.has(c); }); // 不匹配的必须真的移出可视区
+      const frag = document.createDocumentFragment();
+      list.forEach((c) => { c.querySelector('.t')!.textContent = c.dataset.t!; if (key) hl(c, c.dataset.t!, key); frag.appendChild(c); });
+      grid.appendChild(frag);
+      empty.hidden = list.length > 0;
+      stat.textContent = `${list.length} / ${cards.length}`;
+    }
+
+    document.getElementById('chips')!.onclick = (e) => {
+      const c = (e.target as HTMLElement).closest('.chip') as HTMLElement | null;
+      if (!c) return;
+      document.querySelectorAll('#chips .chip').forEach((x) => x.classList.remove('on'));
+      c.classList.add('on');
+      tag = c.dataset.t || '';
+      render();
+    };
+    let t: number | undefined;
+    q.oninput = () => { clearTimeout(t); t = window.setTimeout(render, 100); };
+    q.onkeydown = (e) => {
+      if (e.key === 'Enter' && q.value.trim()) location.href = `${base}search/?q=${encodeURIComponent(q.value.trim())}`;
+    };
+    sort.onchange = render;
+    document.addEventListener('keydown', (e) => {
+      if (e.key === '/' && document.activeElement !== q) { e.preventDefault(); q.focus(); }
+    });
+    render();
+  </script>
+</Base>
