@@ -24,7 +24,11 @@ jobs:
       - name: Compile corpus
         run: python3 scripts/build_data.py --src . --out public/data
 
-      # 2) Astro 7 静态构建：701 个书目页 + 篇名检索页 + 首页（Astro 7 需要 Node >= 22.12）
+      # 2) 全站全文检索索引：bigram 倒排 + 512 分片（约 2 分钟，147 MB，不入库）
+      - name: Build full-text index
+        run: python3 scripts/build_index.py --shards 512
+
+      # 3) Astro 7 静态构建：701 个书目页 + 篇名检索页 + 首页（Astro 7 需要 Node >= 22.12）
       - uses: actions/setup-node@v4
         with:
           node-version: 22

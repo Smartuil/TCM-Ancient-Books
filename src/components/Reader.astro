@@ -39,6 +39,17 @@ const { id, chunks } = Astro.props;
   const tocLinks = [...document.querySelectorAll<HTMLAnchorElement>('.toc-item')];
 
   const esc = (s: string) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]!));
+
+  /* 从检索结果跳进来时带 ?q=，在正文里把命中处标出来（只标已加载的块） */
+  const QUERY = (new URLSearchParams(location.search).get('q') || '').trim();
+  const QESC = QUERY.length >= 2 ? esc(QUERY) : '';
+  let qHits = 0;
+  function hlQuery(escaped: string): string {
+    if (!QESC || !escaped.includes(QESC)) return escaped;
+    const parts = escaped.split(QESC);
+    qHits += parts.length - 1;
+    return parts.join(`<mark class="qmark">${QESC}</mark>`);
+  }
   const cache = new Map<number, Promise<any[]>>();
   const containers = new Map<number, HTMLElement>();
   const loaded = new Set<number>();
@@ -90,8 +101,8 @@ const { id, chunks } = Astro.props;
       art.className = 'sec';
       art.id = 's-' + (start + i);
       art.innerHTML =
-        `<h2>${esc(sec.t)}${sec.c ? `<span class="cat">${esc(sec.c)}</span>` : ''}</h2>` +
-        sec.p.map((p: string) => `<p>${esc(p)}</p>`).join('');
+        `<h2>${hlQuery(esc(sec.t))}${sec.c ? `<span class="cat">${esc(sec.c)}</span>` : ''}</h2>` +
+        sec.p.map((p: string) => `<p>${hlQuery(esc(p))}</p>`).join('');
       frag.appendChild(art);
       secObs.observe(art);
     });
@@ -104,10 +115,8 @@ const { id, chunks } = Astro.props;
   }
 
   function refreshBar() {
-    bar.textContent =
-      loaded.size >= TOTAL
-        ? '— 全文完 —'
-        : `已载入 ${loaded.size} / ${TOTAL} 块 · 向下滚动自动续载`;
+    const tail = loaded.size >= TOTAL ? '— 全文完 —' : `已载入 ${loaded.size} / ${TOTAL} 块 · 向下滚动自动续载`;
+    bar.textContent = QESC ? `${tail} · 「${QUERY}」已高亮 ${qHits} 处` : tail;
   }
 
   /* 阅读进度：本地自动保存（同一篇不重复写，滚动高亮每次都会调 mark） */

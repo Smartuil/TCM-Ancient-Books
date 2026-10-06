@@ -2,16 +2,17 @@
 import Base from '../layouts/Base.astro';
 import { catalog } from '../data.ts';
 
-import { BASE as base } from '../paths.ts';
+const base = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : import.meta.env.BASE_URL + '/';
 const n = catalog.sections;
-// 构建期注入「书号 → 书名 · 作者 · 朝代」标签表（gzip 后 ~10 KB），省掉一次 catalog 请求
+// 构建期注入：书号 → 「书名 · 作者 · 朝代」标签、与书号同序的篇数
 const LABEL = Object.fromEntries(
   catalog.books.map((b) => [b.id, [b.title, b.author, b.dynasty].filter(Boolean).join(' · ')])
 );
+const SECTIONS = Object.fromEntries(catalog.books.map((b) => [b.id, b.sections]));
 ---
 <Base
-  title="篇名全站检索 · 岐黄古籍"
-  description={`在 ${catalog.count} 部中医药古籍、${n} 个篇目中检索篇名、药材、方名。`}
+  title="检索 · 岐黄古籍"
+  description={`在 ${catalog.count} 部中医药古籍、${n} 个篇目、8,104 万字全文中检索。`}
 >
   <header class="topbar">
     <a class="brand" href={base} style="letter-spacing:.1em">← 岐黄古籍</a>
@@ -21,36 +22,41 @@ const LABEL = Object.fromEntries(
   </header>
 
   <section class="hero" style="padding-bottom:8px">
-    <h1 style="font-size:1.8rem;letter-spacing:.2em">篇名检索</h1>
+    <h1 style="font-size:1.8rem;letter-spacing:.2em">检 索</h1>
     <div class="sub">
-      覆盖 {catalog.count} 部典籍 · {(n / 10000).toFixed(1)} 万个篇目条目（药名、方名、证候、序跋……）
+      篇名 {(n / 10000).toFixed(1)} 万条 · 全书正文 8,104 万字
     </div>
     <div class="rule"></div>
   </section>
 
   <div class="controls">
-    <input class="search" id="q" placeholder="例如 人参、四物汤、太阳病、本草纲目" autocomplete="off" autofocus />
+    <input class="search" id="q" placeholder="例如 人参、四物汤、太阳病" autocomplete="off" autofocus />
+    <div class="scope" id="scope">
+      <button class="chip on" data-m="title">篇名 · 全站</button>
+      <button class="chip" data-m="full">全文 · 8,104 万字</button>
+    </div>
   </div>
 
   <div class="hits" id="hits"></div>
-  <div class="empty" id="empty" hidden>没有匹配的篇目</div>
+  <div class="empty" id="empty" hidden>没有匹配的结果</div>
 
-  <script is:inline define:vars={{ LABEL }}>
+  <script is:inline define:vars={{ LABEL, SECTIONS }}>
     window.LABEL = LABEL;
+    window.SECTIONS = SECTIONS;
   </script>
 
   <script>
+    import { searchFullText } from '../lib/fts.ts';
+
     const base = (window as any).__BASE__ || '/';
     const labels: Record<string, string> = (window as any).LABEL || {};
+    const sections: Record<string, number> = (window as any).SECTIONS || {};
     const q = document.getElementById('q') as HTMLInputElement;
     const box = document.getElementById('hits')!;
     const empty = document.getElementById('empty')!;
     const stat = document.getElementById('stat')!;
     const LIMIT = 300;
-
-    let entries: [number | string, number, string][] = [];
-    const shards: any[][] = [];
-    let total = 0, loaded = 0;
+    let mode: 'title' | 'full' = 'title';
 
     const esc = (s: string) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
     const HL = (text: string, key: string) => {
@@ -58,32 +64,43 @@ const LABEL = Object.fromEntries(
       if (i < 0) return esc(text);
       return esc(text.slice(0, i)) + '<mark>' + esc(text.slice(i, i + key.length)) + '</mark>' + esc(text.slice(i + key.length));
     };
+    const cjkCount = (s: string) => (s.match(/[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/g) || []).length;
 
-    async function loadIndex() {
-      const man = await fetch(`${base}data/search/manifest.json`).then((r) => r.json());
-      total = man.shards.length;
-      box.innerHTML = `<div class="loadbar">正在载入篇名索引 0 / ${total} …</div>`;
-      await Promise.all(
-        man.shards.map(async (s: any, i: number) => {
-          shards[i] = await fetch(`${base}data/search/${s.file}`).then((r) => r.json());
-          loaded++;
-          run(); // 分片到一片就重跑一次，结果边到边出
-        })
-      );
-      entries = shards.flat();
-      run();
+    /* ---------- 篇名索引（8 片，全站 148,197 条）---------- */
+    const IDX = { shards: [] as any[][], loaded: 0, total: 0, entries: [] as [number | string, number, string][], titlesByDoc: null as string[] | null };
+    let titlesPromise: Promise<void> | null = null;
+
+    function ensureTitles(): Promise<void> {
+      if (titlesPromise) return titlesPromise;
+      titlesPromise = (async () => {
+        const man = await fetch(`${base}data/search/manifest.json`).then((r) => r.json());
+        IDX.total = man.shards.length;
+        await Promise.all(
+          man.shards.map(async (s: any, i: number) => {
+            IDX.shards[i] = await fetch(`${base}data/search/${s.file}`).then((r) => r.json());
+            IDX.loaded++;
+            if (mode === 'title') runTitle();
+          })
+        );
+        IDX.entries = IDX.shards.flat() as any;
+        // 索引分片按书籍顺序拼接，所以扁平化后的下标 == 全局篇号，可当篇名查表用
+        IDX.titlesByDoc = IDX.entries.map((e) => e[2]);
+        if (mode === 'title') runTitle();
+      })();
+      return titlesPromise;
     }
 
-    function run() {
+    /* ---------- 篇名检索 ---------- */
+    function runTitle() {
       const key = q.value.trim().toLowerCase();
       if (!key) { box.innerHTML = ''; empty.hidden = true; stat.textContent = ''; return; }
-      if (loaded < total) {
-        box.innerHTML = `<div class="loadbar">正在载入篇名索引 ${loaded} / ${total} …</div>`;
+      if (IDX.loaded < IDX.total) {
+        box.innerHTML = `<div class="loadbar">正在载入篇名索引 ${IDX.loaded} / ${IDX.total} …</div>`;
         return;
       }
-      const hits: [number | string, number, string][] = [];
+      const hits: any[] = [];
       let count = 0;
-      for (const e of entries) {
+      for (const e of IDX.entries) {
         if (e[2].toLowerCase().includes(key)) {
           count++;
           if (hits.length < LIMIT) hits.push(e);
@@ -101,7 +118,7 @@ const LABEL = Object.fromEntries(
         hits
           .map(([bid, si, t]) => {
             const id = String(bid).padStart(3, '0');
-            return `<a class="hit" href="${base}book/${id}/?s=${si}">
+            return `<a class="hit" href="${base}book/${id}/?s=${si}&q=${encodeURIComponent(q.value.trim())}">
               <div class="ht">${HL(t, key)}</div>
               <div class="hm">${esc(labels[id] || id)}</div>
             </a>`;
@@ -109,15 +126,82 @@ const LABEL = Object.fromEntries(
           .join('');
     }
 
+    /* ---------- 全文检索（bigram 倒排 + 分片）---------- */
+    async function runFull() {
+      const kw = q.value.trim();
+      if (!kw) { box.innerHTML = ''; empty.hidden = true; stat.textContent = ''; return; }
+      if (cjkCount(kw) < 2) {
+        box.innerHTML = `<div class="loadbar">全文索引按「字 + 字」二元组建立，请至少输入两个字（单字请用左侧的篇名检索）</div>`;
+        empty.hidden = true;
+        stat.textContent = '';
+        return;
+      }
+      box.innerHTML = `<div class="loadbar">全文检索中…</div>`;
+      const r = await searchFullText(base, kw, 200);
+      renderFull(r, kw);
+      if (!IDX.titlesByDoc) ensureTitles().then(() => { if (mode === 'full') renderFull(r, kw); });
+    }
+
+    function renderFull(r: any, kw: string) {
+      stat.textContent = `${r.total} 篇`;
+      empty.hidden = r.total > 0;
+      const shown = r.hits.length;
+      const head =
+        `<div class="loadbar">命中 ${r.total} 篇` +
+        `${r.total > shown ? `，显示前 ${shown} 篇` : ''} · 取 ${r.shards.length} 片（本次下载 ${r.fetched} 片）· ${r.ms} ms` +
+        `${IDX.titlesByDoc ? '' : ' · 篇名载入中…'}</div>`;
+      if (!r.total) {
+        box.innerHTML = head + `<div class="loadbar">没有找到「${esc(kw)}」（索引为二元组，标点与单字不参与；也可能是本库未收录该词）</div>`;
+        return;
+      }
+      box.innerHTML =
+        head +
+        r.hits
+          .map((h: any) => {
+            const id = h.book;
+            const total = sections[id] || 0;
+            const title = IDX.titlesByDoc?.[h.doc];
+            const head2 = title ? HL(title, kw.toLowerCase()) : HL(labels[id] || id, kw.toLowerCase());
+            const meta = title ? `${esc(labels[id] || id)} · 第 ${h.section + 1}/${total} 篇` : `第 ${h.section + 1}/${total} 篇`;
+            return `<a class="hit" href="${base}book/${id}/?s=${h.section}&q=${encodeURIComponent(kw)}">
+              <div class="ht">${head2}</div>
+              <div class="hm">${meta}</div>
+            </a>`;
+          })
+          .join('');
+    }
+
+    /* ---------- 交互 ---------- */
     let timer: number | undefined;
-    q.oninput = () => { clearTimeout(timer); timer = window.setTimeout(run, 120); };
+    const dispatch = () => (mode === 'full' ? runFull() : runTitle());
+    q.oninput = () => { clearTimeout(timer); timer = window.setTimeout(dispatch, 150); };
+
+    document.getElementById('scope')!.onclick = (e) => {
+      const c = (e.target as HTMLElement).closest('.chip') as HTMLElement | null;
+      if (!c) return;
+      document.querySelectorAll('#scope .chip').forEach((x) => x.classList.remove('on'));
+      c.classList.add('on');
+      mode = c.dataset.m as 'title' | 'full';
+      dispatch();
+    };
     document.addEventListener('keydown', (e) => {
       if (e.key === '/' && document.activeElement !== q) { e.preventDefault(); q.focus(); }
     });
 
-    loadIndex().then(() => {
-      const init = new URLSearchParams(location.search).get('q');
-      if (init) { q.value = init; run(); }
-    });
+    const params = new URLSearchParams(location.search);
+    const initQ = params.get('q');
+    const initM = params.get('m');
+    if (initM === 'full') {
+      mode = 'full';
+      document.querySelectorAll('#scope .chip').forEach((x) => x.classList.remove('on'));
+      document.querySelector('#scope .chip[data-m="full"]')!.classList.add('on');
+    }
+    if (initQ) {
+      q.value = initQ;
+      // 带查询词才预载篇名索引；否则首次输入时才拉（避免白下 1.18 MB）
+      ensureTitles().then(dispatch);
+    } else {
+      q.oninput = () => { clearTimeout(timer); timer = window.setTimeout(dispatch, 150); };
+    }
   </script>
 </Base>

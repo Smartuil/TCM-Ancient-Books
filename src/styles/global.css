@@ -135,6 +135,13 @@ article.sec h2 {
 article.sec h2 .cat { font-size: .7rem; color: var(--ink-soft); font-weight: 400; letter-spacing: .08em; margin-left: 8px; }
 article.sec p { margin: 0 0 1em; text-indent: 2em; text-align: justify; }
 
+/* 检索词在正文里的高亮 */
+mark.qmark {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: inherit; font-weight: 700;
+  border-bottom: 1px solid var(--accent); padding-bottom: 1px;
+}
+
 /* 续读提示条（阅读页） */
 .resume {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;

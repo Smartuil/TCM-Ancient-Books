@@ -12,7 +12,9 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
-    "test": "node tests/progress.test.mjs"
+    "test": "node tests/progress.test.mjs && node tests/fts.test.mjs",
+    "data:index": "python3 scripts/build_index.py --shards 512",
+    "data:all": "npm run data && npm run data:index"
   },
   "dependencies": {
     "@astrojs/sitemap": "^3.7.4",
