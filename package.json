@@ -14,10 +14,14 @@
     "preview": "astro preview",
     "test": "node tests/progress.test.mjs && node tests/fts.test.mjs",
     "data:index": "python3 scripts/build_index.py --shards 512",
-    "data:all": "npm run data && npm run data:index"
+    "data:all": "npm run data && npm run data:index",
+    "test:dom": "node tests/dom-progress.test.mjs"
   },
   "dependencies": {
     "@astrojs/sitemap": "^3.7.4",
     "astro": "^7.3.5"
+  },
+  "devDependencies": {
+    "jsdom": "^30.1.2"
   }
 }

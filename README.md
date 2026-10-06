@@ -8,7 +8,7 @@
 - Astro **7.3.5** 静态构建 · Node **>= 22.12**
 - 构建产物：**703 个静态页**，构建耗时 **约 2.4 秒**；站点总产物 ~420 MB（< Pages 的 1 GB 上限）
 - 检索：**篇名 148,197 条** + **全文 8,104 万字**（bigram 倒排，512 分片）
-- 部署：push 到 `master` → GitHub Actions 自动「编译语料 → 建全文索引 → 构建 → 发布」，**全程约 5 分钟**
+- 部署：push 到 `master` → GitHub Actions 自动「编译语料 → 建全文索引 → 构建 → 跑 62 条测试 → 发布」，**全程约 4.5 分钟**
 
 ---
 
@@ -94,7 +94,8 @@ npm run preview
 # 3) 全文检索索引（bigram 倒排 + 512 分片，约 2 分钟，147 MB）
 npm run data:index      # = python3 scripts/build_index.py --shards 512
 
-npm test                # 单测：进度模块 10 条 + 全文检索 27 条（都无需浏览器）
+npm test                # 单测 38 条：进度模块 10 + 全文检索 28（都无需浏览器）
+npm run test:dom        # DOM 级测试 24 条：在 jsdom 里跑构建产物，验证阅读进度的真实行为
 ```
 
 若本地 txt 不在仓库根目录，用 `npm run data:local`（指向 `../books`）。
@@ -136,7 +137,8 @@ push → actions/checkout → Compile corpus（2 分钟）→ setup-node 22 → 
 │  ├─ pages/search.astro        篇名全站检索：8 分片流式加载 + 高亮
 │  ├─ pages/book/[id].astro     阅读页：目录 SSG + island
 │  └─ styles/global.css         古籍视觉：宣纸 #f7f2e6 / 墨 #2a2118 / 朱砂 #9c2c1f
-├─ tests/                       单测：progress.test.mjs、fts.test.mjs（用真索引跑）
+├─ tests/                       测试：progress.test.mjs（10）、fts.test.mjs（28，用真索引）、
+│                               dom-progress.test.mjs（24，jsdom 跑构建产物）
 ├─ public/                      favicon.svg、.nojekyll、data/（编译产物）
 └─ .github/workflows/pages.yml
 ```

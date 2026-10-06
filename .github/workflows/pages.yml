@@ -36,6 +36,10 @@ jobs:
       - run: npm ci
       - run: npm run build
 
+      # 单测（进度模块 10 条 + 全文检索 28 条）+ DOM 级测试（阅读进度 24 条，跑的就是刚构建的产物）
+      - name: Test
+        run: npm test && npm run test:dom
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
