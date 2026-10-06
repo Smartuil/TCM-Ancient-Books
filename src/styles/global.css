@@ -164,9 +164,12 @@ mark.qmark {
 .recent-card .rs { color: var(--ink-soft); font-size: .74rem; margin-top: 5px; display: flex; gap: 10px; justify-content: space-between; }
 .recent-card .rs .sn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* 卡片上的阅读进度 */
-.card .prog { margin-top: 9px; height: 3px; border-radius: 2px; background: var(--line); overflow: hidden; }
-.card .prog i { display: block; height: 100%; background: var(--accent); }
+/* 卡片上的阅读进度（.card 书目卡片 与 .recent-card 最近在读 两处都用 .prog，样式必须都覆盖：
+   i 是空元素，少了 display:block 就吃不到 width，进度条会整条看不见） */
+.card .prog,
+.recent-card .prog { margin-top: 9px; height: 3px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.card .prog i,
+.recent-card .prog i { display: block; height: 100%; background: var(--accent); }
 .card .ptext { color: var(--accent); font-size: .68rem; letter-spacing: .06em; margin-top: 5px; }
 
 /* 未载入的正文块占位条 */

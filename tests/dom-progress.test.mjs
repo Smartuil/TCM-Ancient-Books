@@ -146,5 +146,31 @@ console.log('\n[E] 空进度时首页不显示「最近在读」');
   ok('没有卡片角标', window.document.querySelectorAll('.card .ptext').length === 0);
 }
 
+console.log('\n[F] CSS 契约：两处 .prog 进度条都得真的看得见');
+{
+  // 为什么放在这里：jsdom 不做 CSS 层叠与布局，上一版就漏掉了「.recent-card 里的 .prog i
+  // 拿不到 display:block → 宽度 0 → 进度条整条不可见」这个线上缺陷。
+  // 所以退一步做静态契约检查：index.astro 里 .prog 出现在两个容器下（.card 目录卡片、
+  // .recent-card 最近在读），CSS 必须对两个容器都给出 display:block + height:100%。
+  // 先去掉注释，否则注释文字会被并进下一条规则的选择器里
+  const css = fs.readFileSync(new URL('../src/styles/global.css', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({ sel: m[1].trim(), body: m[2] }));
+  const selsOf = (r) => r.sel.split(',').map((s) => s.trim().replace(/\s+/g, ' '));
+  /** 有没有一条规则：选择器落到 <container> 下的 .prog i（或裸 .prog i），且给出 block + 100% 高 */
+  const barVisible = (container) =>
+    rules.some((r) => selsOf(r).some((s) => {
+      const parts = s.split(' ');
+      if (parts.at(-1) !== 'i' || parts.at(-2) !== '.prog') return false;
+      const scope = parts.slice(0, -2).join(' ');
+      return scope === '' || scope.includes(container);
+    }) && /display:\s*block/.test(r.body) && /height:\s*100%/.test(r.body));
+  const trackStyled = (container) =>
+    rules.some((r) => selsOf(r).some((s) => s === '.prog' || s === `${container} .prog`) && /height:\s*3px/.test(r.body));
+
+  ok('目录卡片 .card .prog i 可见（display:block + height:100%）', barVisible('.card'));
+  ok('最近在读 .recent-card .prog i 可见', barVisible('.recent-card'));
+  ok('两条轨道都有 3px 高', trackStyled('.card') && trackStyled('.recent-card'));
+}
+
 console.log(`\n结果：${pass} 通过 / ${bad} 失败`);
 process.exit(bad ? 1 : 0);
