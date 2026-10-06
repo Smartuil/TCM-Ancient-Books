@@ -219,7 +219,9 @@ def build(src: str, out: str) -> dict:
         stem = os.path.splitext(fn)[0]
         m = re.match(r"^\s*(\d+)\s*[-_.．、·]\s*(.*)$", stem)  # 既吃 000-书名，也吃 700.书名
         if m:
-            bid, fallback = m.group(1).zfill(3), m.group(2).strip()
+            # 站点书号从 001 起（上游文件名从 000 起，这里 +1 顺移：000→001 … 700→701）。
+            # 上游编号 0..700 连续无断号，顺移后仍是 001..701 连续，URL /book/001/ 即第一本。
+            bid, fallback = str(int(m.group(1)) + 1).zfill(3), m.group(2).strip()
         else:  # 没有任何编号前缀：用文件名兜底，并保证 URL 安全
             bid, fallback = re.sub(r"[^0-9A-Za-z_-]", "", stem[:8]) or "x", stem.strip()
         while bid in used_ids:  # 极小概率的编号碰撞

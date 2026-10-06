@@ -18,11 +18,18 @@ interface Props {
 const { id, chunks } = Astro.props;
 ---
 <div id="reader" data-id={id} data-chunks={chunks} data-base={base}>
+  <div class="resume" id="resume" hidden>
+    <span class="resume-text" id="resumeText"></span>
+    <button class="btn" type="button" id="resumeRestart">从头开始</button>
+    <button class="btn btn-icon" type="button" id="resumeClose" aria-label="关闭">×</button>
+  </div>
   <div class="reader-content" id="content"></div>
   <div class="loadbar" id="loadbar"></div>
 </div>
 
 <script>
+  import { getProgress, saveProgress, clearProgress, ago } from '../lib/progress.ts';
+
   const root = document.getElementById('reader')!;
   const BID = root.dataset.id!;
   const BASE = root.dataset.base || '/';
@@ -103,6 +110,21 @@ const { id, chunks } = Astro.props;
         : `已载入 ${loaded.size} / ${TOTAL} 块 · 向下滚动自动续载`;
   }
 
+  /* 阅读进度：本地自动保存（同一篇不重复写，滚动高亮每次都会调 mark） */
+  let savedIdx = -2;
+  let savedAt = 0;
+  function persist(i: number, force = false) {
+    if (!force && i === savedIdx) return; // 同一篇不重复写
+    savedIdx = i;
+    savedAt = Date.now();
+    saveProgress(BID, {
+      s: i,
+      t: tocLinks[i]?.dataset.t || '',
+      n: tocLinks.length,
+      at: savedAt,
+    });
+  }
+
   function mark(i: number) {
     cur = i;
     document.querySelector('.toc-item.cur')?.classList.remove('cur');
@@ -112,7 +134,30 @@ const { id, chunks } = Astro.props;
       el.scrollIntoView({ block: 'nearest' });
     }
     history.replaceState(null, '', `?s=${i}`);
+    persist(i);
   }
+
+  /* 续读提示条 */
+  const resumeBar = document.getElementById('resume')!;
+  const resumeText = document.getElementById('resumeText')!;
+  function showResume(p: { s: number; t: string; at: number }) {
+    const title = p.t || tocLinks[p.s]?.dataset.t || '上次位置';
+    resumeText.innerHTML =
+      `已续读到上次的位置：<b>${title.replace(/[&<>]/g, '')}</b>` +
+      `<span class="dim">（第 ${p.s + 1} / ${tocLinks.length} 篇 · ${ago(p.at)}）</span>`;
+    resumeBar.hidden = false;
+  }
+  document.getElementById('resumeClose')!.addEventListener('click', () => { resumeBar.hidden = true; });
+  document.getElementById('resumeRestart')!.addEventListener('click', () => {
+    clearProgress(BID);
+    savedIdx = -2;
+    resumeBar.hidden = true;
+    goTo(0, true);
+  });
+
+  /* 离开页面时兜底写一次（滚动节流可能刚好漏掉最后一段） */
+  addEventListener('pagehide', () => persist(cur, true));
+  addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') persist(cur, true); });
 
   async function goTo(i: number, smooth = false) {
     if (i < 0 || i >= tocLinks.length) return;
@@ -230,16 +275,22 @@ const { id, chunks } = Astro.props;
   };
   syncV();
 
-  /* 启动 */
+  /* 启动：?s= 优先；否则看本地进度自动续读 */
   buildSeats();
   (async () => {
     const s = parseInt(new URLSearchParams(location.search).get('s') || '-1', 10);
     if (s >= 0 && s < tocLinks.length) {
       await goTo(s);
-    } else {
-      await loadChunk(0);
-      mark(0);
-      settle();
+      return;
     }
+    const saved = getProgress(BID);
+    if (saved && saved.s > 0 && saved.s < tocLinks.length) {
+      await goTo(saved.s);
+      showResume(saved);
+      return;
+    }
+    await loadChunk(0);
+    mark(0);
+    settle();
   })();
 </script>

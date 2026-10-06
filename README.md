@@ -15,13 +15,13 @@
 
 | 页面 | 内容 |
 |---|---|
-| [`/`](https://smartuil.github.io/TCM-Ancient-Books/) | 701 部典籍书目，按序号／篇幅／朝代／作者排序，14 个分类筛选，书名·作者·朝代即时过滤（全部 SSG 成真 HTML，利于收录） |
+| [`/`](https://smartuil.github.io/TCM-Ancient-Books/) | 701 部典籍书目（编号 001–701），按序号／篇幅／朝代／作者排序，14 个分类筛选，书名·作者·朝代即时过滤（全部 SSG 成真 HTML，利于收录） |
 | [`/search/`](https://smartuil.github.io/TCM-Ancient-Books/search/) | **148,197 个篇目条目**跨书检索（药名、方名、证候、序跋），支持 `?q=人参` 直达 |
 | `/book/<id>/` | 阅读页：完整目录（按卷分组）+ 正文按块懒加载 + **竖排**（`writing-mode: vertical-rl`）+ 日夜 + 字号 + `[` `]` 翻篇 |
 
-例：[《神农本草经》](https://smartuil.github.io/TCM-Ancient-Books/book/000/) ·
-[《普济方》1906 篇 / 23 个正文块](https://smartuil.github.io/TCM-Ancient-Books/book/074/) ·
-[《本草纲目》](https://smartuil.github.io/TCM-Ancient-Books/book/013/)
+例：[《神农本草经》](https://smartuil.github.io/TCM-Ancient-Books/book/001/) ·
+[《普济方》1906 篇 / 23 个正文块](https://smartuil.github.io/TCM-Ancient-Books/book/075/) ·
+[《本草纲目》](https://smartuil.github.io/TCM-Ancient-Books/book/014/)
 
 ## 语料体检（实测，它决定了整个架构）
 
@@ -34,6 +34,7 @@
 | 源格式 | 631 本带标签（`<篇名>` / `<目录>` / `内容：`），70 本无标签纯文本（中医瑰宝苑导出） |
 | 单本最大 | 《普济方》492 万字 / 1,906 篇 / 23 个正文块 |
 | 单本最小 | 2.2 KB（歌诀类） |
+| 站点书号 | **001–701**（上游文件名从 `000-` 起，站点统一 +1 顺移；原始文件名保留在 catalog 的 `src` 字段里可追溯，如 `001 ← 000-神农本草经.txt`） |
 
 **为什么不能用文档站框架直接吃 markdown**：148,197 篇 × 每页约 20 KB HTML ≈ **3 GB 产物**，
 远超 GitHub Pages 的 1 GB 仓库建议上限，构建时间也会到小时级。
@@ -63,6 +64,11 @@
    改成滚动停稳后载入离视口中心最近的未载入块，正常阅读、拖到底、深跳后回滚三种情形都对。
 4. **gzip 是主要成本杠杆。** 正文块 599 KB → **194 KB**（32%），catalog 143 KB → 26 KB。
    打开任意一本书的首屏流量 ≈ 200 KB。
+5. **阅读进度存在浏览器本地，没有账号系统。** 读到哪一篇自动写进 `localStorage`
+   （键 `qhguji:progress:v1`，按书号索引，超 300 本按时间淘汰最旧的）。
+   再次打开同一本书会自动续读到上次的位置，并给一条可关闭的提示条 +「从头开始」按钮；
+   首页顶部出现「最近在读」卡片，书目卡片上带进度条。**不上传任何数据、不埋点。**
+   相关代码：`src/lib/progress.ts`（纯函数，可单测）。
 
 ## 本地开发
 
@@ -78,6 +84,7 @@ npm run data            # = python3 scripts/build_data.py --src . --out public/d
 npm run dev             # http://localhost:4321/TCM-Ancient-Books/（base 前缀是必须的）
 npm run build           # 产物在 dist/：703 页，约 2.4 秒
 npm run preview
+npm test                # 阅读进度模块的单元测试（10 条，无依赖、无需浏览器）
 ```
 
 若本地 txt 不在仓库根目录，用 `npm run data:local`（指向 `../books`）。
@@ -111,7 +118,8 @@ push → actions/checkout → Compile corpus（2 分钟）→ setup-node 22 → 
 │  ├─ data.ts                   构建期读取 public/data（用 process.cwd()，别用 import.meta.url）
 │  ├─ paths.ts                  base 前缀归一化（Astro 的 BASE_URL 不带结尾斜杠，是个坑）
 │  ├─ layouts/Base.astro        主题 / 字号 / 竖排的首屏还原脚本（防闪动）
-│  ├─ components/Reader.astro   阅读器 island：分块占位 + 最近优先续载 + 竖排/日夜/字号
+│  ├─ lib/progress.ts           阅读进度的本地存取（纯函数，可单测）
+│  ├─ components/Reader.astro   阅读器 island：分块占位 + 最近优先续载 + 竖排/日夜/字号 + 进度自动保存
 │  ├─ pages/index.astro         首页：701 卡片 SSG + 客户端过滤排序
 │  ├─ pages/search.astro        篇名全站检索：8 分片流式加载 + 高亮
 │  ├─ pages/book/[id].astro     阅读页：目录 SSG + island
@@ -128,6 +136,7 @@ push → actions/checkout → Compile corpus（2 分钟）→ setup-node 22 → 
 | 分类筛选 | 构建期按书名关键词归类（本草、方书、伤寒金匮、针灸、医案……14 类） | 伤寒金匮 57 部 |
 | **篇名全站检索** | `search/titles-*.json` 8 分片，首次输入才并发拉取，**边到边出结果** | 索引 gzip 合计 1.18 MB；载入+解析 107 ms、单次检索 15–42 ms；线上首屏出结果约 2.5 s |
 | 单书内查找 | 阅读页侧栏即时过滤本书篇名 | — |
+| **阅读进度** | `localStorage` 按书号记录篇序号 + 篇名 + 时间，自动保存/自动续读，无后端 | 键 `qhguji:progress:v1`，超 300 本按时间淘汰 |
 
 命中示例：「人参」515 篇、「甘草」570 篇、「伤寒」1677 篇、「四物汤」98 篇。结果限 300 条，前缀命中优先 + 短标题优先。
 
@@ -145,9 +154,10 @@ push → actions/checkout → Compile corpus（2 分钟）→ setup-node 22 → 
 ## 路线图
 
 - ✅ **v1（已上线）**：书目 SSG + 篇名/作者检索 + 分块阅读器 + 竖排
+- ✅ **阅读进度**：本地自动保存 / 自动续读 / 最近在读 / 卡片进度条（无账号、无后端）
 - ⬜ **v2**：全站**全文**检索（8,104 万字）。Pagefind 只吃已生成的 HTML，吃 JSON 会让索引膨胀到几百 MB；
   更实际的做法是 Python 预生成 **bigram 倒排 + 分片**按需拉取，或外挂 Meilisearch / Cloudflare Worker（此时已不是纯静态）
-- ⬜ 可选：自托管字体、书目 OCR 校勘标注、阅读进度本地留存
+- ⬜ 可选：自托管字体（霞鹜文楷）、书目 OCR 校勘标注、进度跨设备同步（需要账号，暂不做）
 
 ## 上游与许可
 

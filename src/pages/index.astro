@@ -34,7 +34,7 @@ const dynRank = (d: string) => {
   <div class="controls">
     <input class="search" id="q" placeholder="搜书名 / 作者 / 朝代，例如 本草纲目、张仲景、清（回车切换到篇名检索）" autocomplete="off" />
     <select id="sort">
-      <option value="id">按序号（000 →）</option>
+      <option value="id">按序号（001 →）</option>
       <option value="chars">按篇幅（大 → 小）</option>
       <option value="dynasty">按朝代</option>
       <option value="author">按作者</option>
@@ -46,11 +46,17 @@ const dynRank = (d: string) => {
     {tags.map(([t, n]) => <span class="chip" data-t={t}>{t} {n}</span>)}
   </div>
 
+  <section class="recent" id="recent" hidden>
+    <h2>最近在读</h2>
+    <div class="recent-list" id="recentList"></div>
+  </section>
+
   <div class="grid" id="grid">
     {books.map((b) => (
       <a
         class="card"
         href={`${base}book/${b.id}/`}
+        data-id={b.id}
         data-t={b.title}
         data-a={b.author || ''}
         data-d={b.dynasty || ''}
@@ -72,6 +78,8 @@ const dynRank = (d: string) => {
   <div class="empty" id="empty" hidden>没有匹配的典籍</div>
 
   <script>
+    import { allProgress, recentProgress, percent, ago } from '../lib/progress.ts';
+
     const grid = document.getElementById('grid')!;
     const cards = [...grid.children] as HTMLElement[];
     const q = document.getElementById('q') as HTMLInputElement;
@@ -129,5 +137,36 @@ const dynRank = (d: string) => {
       if (e.key === '/' && document.activeElement !== q) { e.preventDefault(); q.focus(); }
     });
     render();
+
+    /* ---- 阅读进度（只读本地 localStorage）：卡片角标 + 最近在读 ---- */
+    const store = allProgress();
+    const cardById = new Map<string, HTMLElement>();
+    cards.forEach((c) => { if (c.dataset.id) cardById.set(c.dataset.id, c); });
+
+    cards.forEach((c) => {
+      const p = c.dataset.id ? store[c.dataset.id] : undefined;
+      if (!p) return;
+      const box = document.createElement('div');
+      box.innerHTML =
+        `<div class="prog"><i style="width:${percent(p)}%"></i></div>` +
+        `<div class="ptext">读到 ${p.s + 1} / ${p.n} 篇 · ${percent(p)}%</div>`;
+      c.appendChild(box);
+    });
+
+    const recent = recentProgress(4).filter(([id]) => cardById.has(id));
+    if (recent.length) {
+      document.getElementById('recentList')!.innerHTML = recent
+        .map(([id, p]) => {
+          const c = cardById.get(id)!;
+          const where = p.t ? `${esc(p.t)} · ` : '';
+          return `<a class="recent-card" href="${c.getAttribute('href')}?s=${p.s}">
+            <div class="rt">${esc(c.dataset.t || id)}</div>
+            <div class="rs"><span class="sn">读到 ${where}第 ${p.s + 1}/${p.n} 篇</span><span>${ago(p.at)}</span></div>
+            <div class="prog"><i style="width:${percent(p)}%"></i></div>
+          </a>`;
+        })
+        .join('');
+      document.getElementById('recent')!.hidden = false;
+    }
   </script>
 </Base>
